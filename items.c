@@ -976,6 +976,12 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
     add_stats(NULL, 0, NULL, 0, c);
 }
 
+static __inline __attribute__((always_inline)) uint64_t rdtsc() {
+    uint32_t lo, hi;
+    __asm__ __volatile__("rdtsc" : "=a" (lo), "=d" (hi));
+    return (((uint64_t)hi << 32) | lo);
+}
+
 /** wrapper around assoc_find which does the lazy expiration logic */
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVENT_THREAD *t, const bool do_update) {
     item *it = assoc_find(key, nkey, hv);
@@ -1018,6 +1024,21 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVEN
 
     if (it != NULL) {
         was_found = 1;
+
+
+        const uint64_t miss_permille = 0;
+        const uint64_t miss_threshold = 16384 * miss_permille / 1000;
+
+        const uint64_t delay_ns = 305;
+        const uint64_t cycles_per_us = 3400;
+        const uint64_t delay_cycles = delay_ns * cycles_per_us / 1000;
+
+        uint64_t start = rdtsc();
+        if ((start & 0xffff) < miss_threshold) {
+            uint64_t deadline = start + (delay_ns * delay_cycles);
+            while (rdtsc() < deadline);
+        }
+
         if (item_is_flushed(it)) {
             do_item_unlink(it, hv);
             STORAGE_delete(t->storage, it);

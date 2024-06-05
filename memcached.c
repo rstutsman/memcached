@@ -2044,6 +2044,11 @@ static int nz_strcmp(int nzlength, const char *nz, const char *z) {
     return (zlength == nzlength) && (strncmp(nz, z, zlength) == 0) ? 0 : -1;
 }
 
+void __attribute__ ((noinline)) start_pin_tracing(void) {
+    printf("start_pin_tracing called\n");
+    // Used with ObjecTier pin-trace-mcd start tracing.
+}
+
 bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
     bool ret = true;
 
@@ -2057,6 +2062,7 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
             STATS_UNLOCK();
             APPEND_STAT("slab_global_page_pool", "%u", global_page_pool_size(NULL));
             item_stats_totals(add_stats, c);
+            start_pin_tracing();
         } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
             item_stats(add_stats, c);
         } else if (nz_strcmp(nkey, stat_type, "slabs") == 0) {

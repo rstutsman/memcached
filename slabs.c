@@ -37,6 +37,8 @@ typedef struct {
 
     void **slab_list;       /* array of slab pointers */
     unsigned int list_size; /* size of prev array */
+
+    uint32_t **slab_hot_bytes;
 } slabclass_t;
 
 static slabclass_t slabclass[MAX_NUMBER_OF_SLAB_CLASSES];
@@ -174,6 +176,7 @@ unsigned int slabs_fixup(char *chunk, const int border) {
         //assert(border == 0);
         p = &slabclass[0];
         grow_slab_list(0);
+        p->slab_hot_bytes[p->slabs] = 0;
         p->slab_list[p->slabs++] = (char*)chunk;
         return -1;
     }
@@ -182,6 +185,7 @@ unsigned int slabs_fixup(char *chunk, const int border) {
     // if we're on a page border, add the slab to slab class
     if (border == 0) {
         grow_slab_list(id);
+        p->slab_hot_bytes[p->slabs] = 0;
         p->slab_list[p->slabs++] = chunk;
     }
 
@@ -307,6 +311,7 @@ void slabs_prefill_global(void) {
         // It's probably good enough to cast it and just zero slabs_clsid, but
         // this is extra paranoid.
         memset(ptr, 0, sizeof(item));
+        p->slab_hot_bytes[p->slabs] = 0;
         p->slab_list[p->slabs++] = ptr;
     }
     mem_limit_reached = true;
@@ -340,8 +345,11 @@ static int grow_slab_list (const unsigned int id) {
         size_t new_size =  (p->list_size != 0) ? p->list_size * 2 : 16;
         void *new_list = realloc(p->slab_list, new_size * sizeof(void *));
         if (new_list == 0) return 0;
+        void *new_hot_bytes = realloc(p->slab_hot_bytes, new_size * sizeof(uint32_t *));
+        if (new_hot_bytes == 0) return 0;
         p->list_size = new_size;
         p->slab_list = new_list;
+        p->slab_hot_bytes = new_hot_bytes;
     }
     return 1;
 }
@@ -396,6 +404,7 @@ static int do_slabs_newslab(const unsigned int id) {
     memset(ptr, 0, (size_t)len);
     split_slab_page_into_freelist(ptr, id);
 
+    p->slab_hot_bytes[p->slabs] = 0;
     p->slab_list[p->slabs++] = ptr;
     MEMCACHED_SLABS_SLABCLASS_ALLOCATE(id);
 
@@ -597,6 +606,11 @@ static void do_slabs_stats(ADD_STAT add_stats, void *c) {
             APPEND_NUM_STAT(i, "touch_hits", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].touch_hits);
             total++;
+
+            // Added to extract slab details for ObjecTier simulations.
+            for (int j = 0; j < slabs; j++) {
+                APPEND_NUM_STAT(i, "addr", "0x%llx", (unsigned long long)p->slab_list[j]);
+            }
         }
     }
 
@@ -1201,6 +1215,10 @@ static void slab_rebalance_finish(void) {
  * Sits waiting for a condition to jump off and shovel some memory about
  */
 static void *slab_rebalance_thread(void *arg) {
+    // RSS: slab_hot_bytes needs to be handled properly before rebalancing is works again.
+    //fprintf(stderr, "ObjectTier doesn't support rebalancing. Exiting.\n");
+    //exit(EXIT_FAILURE);
+
     int was_busy = 0;
     int backoff_timer = 1;
     int backoff_max = 1000;
